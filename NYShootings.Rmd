@@ -1,0 +1,114 @@
+---
+title: "NYPD Shooting Incident Data Report"
+date: "1/18/2022"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This report will be based on the dataset "NYPD Shooting Incident Data (Historic)" and will be augmented with data from the dataset "New York City Population by Borough, 1950 - 2040". Both datasets are available on cityofnewyork.us .
+
+```{r importShootings, echo=TRUE}
+library(tidyverse)
+library(lubridate)
+url <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+shootings <- read_csv(url)
+url_population <- "https://data.cityofnewyork.us/api/views/xywu-7bv9/rows.csv?accessType=DOWNLOAD"
+population <- read_csv(url_population)
+```
+
+A little cleaning of the data is required before the diagrams are built.
+
+```{r importShootings_cleaning, echo=TRUE}
+shootings <- shootings %>% rename("Date" = "OCCUR_DATE") %>% mutate(Date = mdy(Date))
+shootings <- shootings %>% rename("Borough" = "BORO")
+shootings <- shootings %>% rename("Gender" = "PERP_SEX")
+shootings <- shootings %>% rename("Age" = "PERP_AGE_GROUP")
+shootings <- shootings %>% rename("Ethnicity" = "PERP_RACE")
+shootings <- shootings %>% rename("Gender_Victim" = "VIC_SEX")
+shootings <- shootings %>% rename("Age_Victim" = "VIC_AGE_GROUP")
+shootings <- shootings %>% rename("Ethnicity_Victim" = "VIC_RACE")
+shootings <- shootings %>% select(-c(INCIDENT_KEY, OCCUR_TIME, PRECINCT, JURISDICTION_CODE, X_COORD_CD,Y_COORD_CD, LOCATION_DESC, STATISTICAL_MURDER_FLAG, Latitude, Longitude, Lon_Lat))
+population <- population %>% filter(Borough != "NYC Total") %>% select("Borough", "2020 - Boro share of NYC total")
+population <- population %>% dplyr::mutate(across(where(is.character), toupper))
+population <- population %>% rename("share" = "2020 - Boro share of NYC total")
+```
+
+**Diagram of number of shooting incidents per borough**
+
+The diagram below shows the number of shooting incidents per borough. Bronx and Brooklyn consist of the majority of the cases.
+
+```{r plot_borough, echo=TRUE}
+shootings_count <- shootings %>% mutate(counter = 1) %>% group_by(Borough) %>% summarize(Occurences = sum(counter)) 
+shootings_count %>% ggplot(aes(x="", y=Occurences, fill=Borough)) + geom_bar(stat="identity", width=1, color="white") + coord_polar("y", start=0) + theme_void()
+```
+
+Corrected for borough population size we get the below diagram. Now the picture is slightly different with Staten Island accounting for almost the same amount of shooting incidents per person as Manhattan and Queens. Brooklyn accounts for less whereas Bronx sadly look even worse in this diagram.
+
+```{r plot_borough2, echo=TRUE}
+inner_join(shootings_count, population) %>% mutate(corrected_count = Occurences / share) %>% ggplot(aes(x="", y=corrected_count, fill=Borough)) + geom_bar(stat="identity", width=1, color="white") + coord_polar("y", start=0) + theme_void()
+```
+
+**Shootings during the year**
+
+An interesting pattern emerges if we look at shootings per month. It seems that those boroughs that experienced the highest amount of shootings were also those with the highest seasonal difference. During the summer months there is a significantly higher number of shootings in these boroughs whereas that pattern is less clear in those boroughs that had fewer incidents.
+The higher number of incidents occurring throughout the summer months could perhaps be explained by more people being outside for a longer periods of time during these months, thus leading to more risk of conflicts arising.
+
+```{r plot_shootings_per_season1, echo=TRUE}
+shootings_by_month <- shootings %>% mutate(month = substr(Date, 6, 7)) %>% group_by(Borough, month) %>% count()
+shootings_by_month %>% ggplot(aes(x=month)) + geom_line(aes(y = n, color = Borough, group = Borough))
+```
+
+A zoom in on the figures for Staten Island to better compare the seasonal pattern to those of Bronx and Brooklyn:
+
+```{r plot_shootings_per_season2, echo=TRUE}
+shootings_by_month %>% filter(Borough == "STATEN ISLAND") %>% ggplot(aes(x=month)) + geom_line(aes(y = n, color = Borough, group = Borough))
+```
+
+**Shootings per year - predictive model**
+
+Finally using a predictive, linear model we can analyze the trend of shootings. On the graph below the red dots are predicted shootings and the blue dots are the actual numbers. 
+It is clear that the model indicates that shootings are becoming a rarer occurrence which might suggest that crime prevention is getting more and more successful (with 2020 being an unfortunate outlier).
+
+```{r plot_predicted_shootings, echo=TRUE}
+shootings_by_year <- shootings %>% mutate(counter = 1) %>% group_by(format(Date, format="%Y")) %>% summarize(Occurences = sum(counter)) 
+names(shootings_by_year)[1] <- "Year"
+shootings_by_year <- shootings_by_year %>% mutate("Year_num" = as.numeric(as.character(shootings_by_year$Year)))
+
+model <- lm(Occurences ~Year_num, data = shootings_by_year)
+summary(model)
+
+shootings_by_year <- shootings_by_year %>% mutate(predicted_shootings = predict(model))
+
+shootings_by_year %>% ggplot() + geom_point(aes(x = Year_num, y = Occurences), color = "blue") + geom_point(aes(x = Year_num, y = predicted_shootings), color = "red")
+```
+
+**Data used**
+
+From NYPD Shooting Incident Data (Historic) (https://data.cityofnewyork.us/api/views/833y-fsy8):
+
+```{r importShootings_summary, echo=TRUE}
+shootings
+summary(shootings)
+```
+
+From New York City Population by Borough, 1950 - 2040 (https://data.cityofnewyork.us/api/views/xywu-7bv9):
+
+```{r importPopulation_summary, echo=TRUE}
+population
+summary(population)
+```
+
+**Final thoughts**
+
+When I started this project I had the intention to investigate the number of shootings by ethnicity of the perpetrator, as that seemed obvious. I came to the conclusion that there might be too much bias in this data since it is not obvious whether all of these entries are actually solved crime cases or the perpetrator fields could be based on witness claims in some cases. This potential source for bias seemed difficult to account for so I decided to investigate crimes as a relation to the different boroughs instead as this information seems less likely to be biased.
+
+My personal bias going into this (from watching countless hours of movies and television series set in the crime-infested underground of large cities in USA) was that specific boroughs of NY would be significantly over-represented in these numbers. The first diagram seemed to confirm my personal bias in an obvious way so I did a second diagram where I corrected for population size. The population figures I used were predictions since the last actual counts in the data-source I used were from 2000. Even with actual counts it is unlikely the result would have been significantly changed.
+
+The seasonal pattern was not something I was aware of before doing this assignment, but rather stumbled upon when playing around with the numbers. It seemed interesting enough to warrant further investigation with the third and fourth diagrams in the report.
+
+So, in conclusion, it does indeed seem like Bronx is a place with significant challenges, apparently (and surprisingly) more so during the summer months than in winter but on the positive side it seems crime prevention is more successful now than in the past.
