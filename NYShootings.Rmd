@@ -10,6 +10,12 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+**Purpose**
+
+In this report I will analyze the differences between the boroughs of New York City with relation to gun violence. I have also analyzed seasonal patterns relating to gun violence as well as the long-term trend.
+
+**Data used**
+
 This report will be based on the dataset "NYPD Shooting Incident Data (Historic)" and will be augmented with data from the dataset "New York City Population by Borough, 1950 - 2040". Both datasets are available on cityofnewyork.us .
 
 ```{r importShootings, echo=TRUE}
