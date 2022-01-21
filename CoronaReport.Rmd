@@ -1,0 +1,317 @@
+---
+title: "Report on COVID19 Data"
+date: "1/18/2022"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE)
+```
+
+**Purpose**
+
+Obviously COVID19 has had huge impact globally right from the first case registered in late in 2019 in Wuhan, China until January 2022 at the time of writing. By now more than 5 million people have died from the disease and countless people have had their lives ruined. It is easy to think that this is just a continually downward spiral which just gets worse all the time. My impression was a different one however, as my impression was that there would be many subtrends and small victories that could be found when studying the numbers more closely.
+
+**Data used**
+
+The report will be based on the datasets "time_series_covid19_confirmed_global", "time_series_covid19_deaths_global", "time_series_covid19_recovered_global", "time_series_covid19_confirmed_US" and "time_series_covid19_deaths_US" by Johns Hopkins University. 
+The datasets are all available on github at https://github.com/CSSEGISandData/COVID-19/raw/master/csse_covid_19_data/csse_covid_19_time_series/.
+
+```{r importLibraries, echo=TRUE}
+# Import libraries first
+library(tidyverse)
+library(lubridate)
+```
+
+```{r importData, echo=TRUE}
+# Read data
+base_url <- 
+  "https://github.com/CSSEGISandData/COVID-19/raw/master/csse_covid_19_data/csse_covid_19_time_series/"
+file_names <- c("time_series_covid19_confirmed_global.csv",
+                "time_series_covid19_deaths_global.csv",
+                "time_series_covid19_recovered_global.csv",
+                "time_series_covid19_confirmed_US.csv",
+                "time_series_covid19_deaths_US.csv")
+
+urls <- str_c(base_url,file_names)
+
+global_cases <- read_csv(urls[1])
+global_deaths <- read_csv(urls[2])
+global_recovered <- read_csv(urls[3])
+us_cases <- read_csv(urls[4])
+us_deaths <- read_csv(urls[5])
+```
+
+The raw data sets need to first be transformed a bit in order to do visualization and modelling on the data.
+
+```{r tidyData, echo=TRUE}
+# Tidy data
+global_cases <- global_cases %>% 
+  pivot_longer(cols = -c(`Province/State`, 
+                         `Country/Region`, 
+                         Lat, 
+                         Long), 
+               names_to = "date", 
+               values_to = "cases") %>% 
+  select(-c(Lat,Long))
+
+global_deaths <- global_deaths %>% 
+  pivot_longer(cols = -c(`Province/State`, 
+                         `Country/Region`, 
+                         Lat, 
+                         Long), 
+               names_to = "date", 
+               values_to = "deaths") %>% 
+  select(-c(Lat,Long))
+
+global_recovered <- global_recovered %>% 
+  pivot_longer(cols = -c(`Province/State`, 
+                         `Country/Region`, 
+                         Lat, 
+                         Long), 
+               names_to = "date", 
+               values_to = "recovered") %>% 
+  select(-c(Lat,Long))
+
+us_cases <- us_cases %>% 
+  pivot_longer(cols = -c(UID,
+                         iso2,
+                         iso3,
+                         code3,
+                         FIPS,
+                         Admin2,
+                         Lat, 
+                         `Long_`,
+                         Province_State,
+                         Country_Region,
+                         Combined_Key), 
+               names_to = "date", 
+               values_to = "cases") %>% 
+  select(-c(UID,
+            iso2,
+            iso3,
+            code3,
+            FIPS,
+            Admin2,
+            Lat,
+            Long_,
+            Province_State,
+            Country_Region))
+
+us_deaths <- us_deaths %>% 
+  pivot_longer(cols = -c(UID,
+                         iso2,
+                         iso3,
+                         code3,
+                         FIPS,
+                         Admin2,
+                         Lat, 
+                         `Long_`,
+                         Province_State,
+                         Country_Region,
+                         Combined_Key,
+                         Population), 
+               names_to = "date", 
+               values_to = "deaths") %>% 
+  select(-c(UID,
+            iso2,
+            iso3,
+            code3,
+            FIPS,
+            Admin2,
+            Lat,
+            `Long_`,
+            Province_State,
+            Country_Region,
+            Population))
+
+global <- global_cases %>% 
+  full_join(global_deaths) %>% 
+  full_join(global_recovered) %>% 
+  rename(Country = `Country/Region`, 
+         Province = `Province/State`) %>% 
+  mutate(date = mdy(date))
+
+us <- us_cases %>% 
+  full_join(us_deaths)  %>% 
+  mutate(date = mdy(date))
+```
+
+```{r buildChinaDataset, echo=TRUE}
+# Build dataset for aggregated counts for all chinese regions
+china_totals <- global %>% 
+  filter(Country == "China") %>% 
+  group_by(date) %>% 
+  mutate(all_cases = sum(cases)) %>% 
+  mutate(all_deaths = sum(deaths)) %>% 
+  mutate(all_recovered = sum(recovered)) %>%
+  filter(Province == "Hubei") %>%
+  select(-c(Province,Country,cases,deaths,recovered))
+```
+
+**COVID19 cases in Denmark**
+
+The diagram below shows the total number of COVID19 cases and deaths in Denmark (excluding Greenland and the Faroe Islands). The steep spike beginning late 2021 is due to the emergence of the Omicron variant (B.1.1.529) of the SARS-CoV-2 virus which has caused an exponential growth in the number of daily reported cases, however this large increase in cases due to Omicron does not seem to reflect in a significantly higher number of deaths (yet at least), indicating that the Omicron variant might be less lethal than the Delta variant, at least in combination with the danish vaccination effort. The effects of the vaccination efforts and general restrictions put in place to combat the virus can be seen already from the second half of 2020. 
+It should be noted that deaths are shown at a different scale than cases.
+
+```{r plotDenmark, echo=TRUE}
+global %>% 
+  filter(Country == "Denmark", is.na(Province)) %>%
+  ggplot(aes(x = date)) +
+  geom_line(aes(y=cases, color="Cases")) +
+  geom_line(aes(y=deaths * 20,color="Deaths * 20")) +
+  scale_color_manual(name = "Occurences", 
+                     values = c("Cases" = "blue", 
+                                "Deaths * 20" = "red")) +
+  labs(title = "Total COVID19 occurences in Denmark", y=NULL)
+```
+
+**Chinese occurences early in the pandemic**
+
+It is generally agreed that the SARS-CoV-2 virus first appeared in the Chinese city of Wuhan mid- or late 2019. The dataset provided does not cover the first months after discovery of the virus but it is interesting to see that even though the Chinese efforts to combat the virus were criticized for being heavy-handed they also proved to be very effective as the number of new cases become very low by the beginning of march 2020.
+
+```{r plotChina, echo=TRUE}
+china_totals %>% 
+  filter(date < as.Date("2020-06-01")) %>%
+  ggplot(aes(x = date)) +
+  geom_line(aes(y= all_cases, color = "Cases")) +
+  geom_line(aes(y= all_deaths, color = "Deaths")) +
+  scale_color_manual(name = "Occurences", 
+                     values = c("Cases" = "blue", 
+                                "Deaths" = "red")) +
+  labs(title = "COVID19 occurences in China first 6 months of 2020", y=NULL)
+```
+
+**COVID19 trend**
+
+The first of the two diagrams below shows the global development in COVID19 case with a linear model fitted to show the trend.
+COVID19 cases were rising slowly the first half of 2020 as the virus was still relatively localized and then significantly increased after it had more or less spread all over the world and thus become a global pandemic. From around new year 2022 we see an even steeper incline in global COVID19 cases, likely due to the emergence of more and more contagious variants of the virus.
+
+The second diagram below shows the relation between cases and deaths (how deadly the virus is at a given point of time from a global perspective). It is very clear that while the virus was not very wide-spread during early 2020 it was significantly more deadly than later. From around mid-2020 until around early 2021 there is a steep decline in deadliness of the virus, coinciding with the appearance of different vaccines targeted towards SARS-CoV-2.
+An additional pattern worth noticing is that from very late 2021 there is a spike in occurences seen in the first diagram and a drop in deadliness as seen on the second diagram. Scientists have speculated that this is due to the emergence of the Omicron variant of the virus (B.1.1.529) which is hoped to be less lethal but more effective in spreading between vaccinated or previously infected people.
+
+```{r createModels, echo=TRUE}
+global_sum <- global %>% 
+  drop_na(cases) %>%
+  group_by(date) %>% 
+  mutate(all_cases = sum(cases)) %>% 
+  mutate(all_deaths = sum(deaths)) %>% 
+  select(-c(Province,Country,cases,deaths,recovered))
+
+global_sum %>% 
+  ggplot(aes(x = date, y = all_cases, color="Trend")) +
+           geom_line(aes(color="Actual")) +
+  geom_smooth(method = "lm", se = FALSE) +
+  scale_color_manual(name = "Cases", 
+                     values = c("Trend" = "blue", 
+                                "Actual" = "red")) +
+  labs(title = "COVID19 global reported cases", y=NULL)
+
+model <- lm(formula = all_deaths ~ all_cases, data = global_sum)
+
+global_sum %>% 
+  ggplot(aes(x = date, y = all_deaths / all_cases, color="Trend")) +
+           geom_line(aes(color="Actual")) +
+  geom_smooth(method = "lm", se = FALSE) +
+  scale_color_manual(name = "Cases", 
+                     values = c("Trend" = "blue", 
+                                "Actual" = "red")) +
+  labs(title = "COVID19 case fatality rate (CFR)", y=NULL)
+
+```
+
+**Fatality model**
+
+With the diagram below I would like to show is a linear model fitted entirely to deaths as a function of cases. As can be seen in the diagram the total deaths predicted fit rather closely with the actual death counts. Again we see the steep spike in 2022 where the predicted deaths are significantly higher than the actual deaths, indicating that the Omicron variant is less lethal than especially the Delta variant which is responsible for many deaths in 2021.
+
+``` {r createModels2, echo=TRUE}
+model <- lm(formula = all_deaths ~ all_cases, data = global_sum)
+summary(model)
+
+global_sum %>%
+   ggplot(aes(x = date)) +
+   geom_line(aes(y=predict(model),color="Predicted")) +
+   geom_line(aes(y=all_deaths,color="Actual")) +
+   scale_color_manual(name = "Deaths", 
+                      values = c("Predicted" = "blue", 
+                                 "Actual" = "red")) +
+  labs(title = "COVID19 predicted based on cases versus actual deaths", y=NULL)
+
+```
+
+**US Vaccination effectiveness**
+
+There is little doubt that the mRNA vaccines have proven very successful, particularly against the original variant of SARS-CoV-2 but also to a lesser degree against later variants such as Delta and Omicron. Skepticism against the vaccines have caused many to not get vaccinated even in countries where the vaccines are easily available and vaccination is encouraged. In the diagram below is shown the fatality rate for one of the most vaccinated counties in USA (Hamilton County, New York) against one of the least vaccinated counties (McCone, Montana).
+According to https://www.nytimes.com/interactive/2020/us/covid-19-vaccine-doses.html McCone county, Montana has 17% fully vaccinated people aged 12+ whereas Hamilton County, New York has 82% fully vaccinated age 12+. Hamilton County experiences the first fatality very early after only 15 registered cases which causes the fatality rate to spike early and then plateau. McCone County on the other hand has a continually growing fatality rate, likely at least part due to lack of support for the vaccination effort.
+It is worth mentioning that while this seems to prove that the vaccines are effective, if not indeed essential, the counties are small and a number of other factors such as population demographics, random events etc. could have a huge impact.
+
+``` {r USVaccines, echo=TRUE}
+mccone <- us %>% 
+  filter(Combined_Key == 'McCone, Montana, US') %>%
+  mutate(mccone_fatality = deaths / cases)
+
+hamilton <- us %>% filter(Combined_Key == 'Hamilton, New York, US') %>% 
+  mutate(hamilton_fatality = deaths / cases)
+
+counties <- mccone %>% 
+  full_join(hamilton) %>%
+  pivot_wider()
+
+counties <- replace(counties, is.na(counties), 0)
+
+counties %>%
+   ggplot(aes(x = date)) +
+   geom_line(aes(y=mccone_fatality,color="McCone County, Montana, USA")) +
+   geom_line(aes(y=hamilton_fatality,color="Hamilton County, New York, USA")) +
+   scale_color_manual(name = "Fatality Rate", 
+                      values = c("McCone County, Montana, USA" = "blue", 
+                                 "Hamilton County, New York, USA" = "red")) +
+  labs(title = "Fatality rate in select US counties", y=NULL)
+
+```
+
+
+**Data used**
+
+confirmed glocal cases from https://github.com/CSSEGISandData/COVID-19/raw/master/csse_covid_19_data/csse_covid_19_time_series/:
+
+```{r GlobalCasesSummary, echo=TRUE}
+global_cases
+summary(global_cases)
+```
+
+Global deaths from https://github.com/CSSEGISandData/COVID-19/raw/master/csse_covid_19_data/csse_covid_19_time_series/:
+
+```{r GlobalDeathsSummary, echo=TRUE}
+global_deaths
+summary(global_deaths)
+```
+
+confirmed US cases from https://github.com/CSSEGISandData/COVID-19/raw/master/csse_covid_19_data/csse_covid_19_time_series/:
+
+```{r USCasesSummary, echo=TRUE}
+us_cases
+summary(us_cases)
+```
+
+US deaths from https://github.com/CSSEGISandData/COVID-19/raw/master/csse_covid_19_data/csse_covid_19_time_series/:
+
+```{r USDeathsSummary, echo=TRUE}
+us_deaths
+summary(us_deaths)
+```
+
+Global recovered from https://github.com/CSSEGISandData/COVID-19/raw/master/csse_covid_19_data/csse_covid_19_time_series/:
+
+```{r GlobalRecoverySummary, echo=TRUE}
+global_recovered
+summary(global_recovered)
+```
+
+**Final thoughts**
+
+Although the datasets used are regarded as some of the best there are large differences in the reporting from one country to another. China, India and Peru are some of those countries that are said to be under-reporting either purposefully or due to lack of resources, compounded by the fact that a lot of COVID19 cases have never been identified due to infections being asymptomatic or only with mild symptoms. Also many countries have had technical issues causing data to be not entirely faithful, Denmark for example have had days where reporting was not possible resulting in a surge of reported cases when the systems were working again. Finally there has been much discussion on what the counts should include (should death counts include anyone who were infected at the time of death or only those where COVID19 was proven to be the primary cause of death). All of this means that the data presented is not entirely truthful, but it is as close as it can be at the time of writing. My personal aim of this report has been to highlight a few of the success stories in this long struggle against SARS-CoV-2. Obviously there have been many more situations where it is not possible to find a positive angle which I could also have highlighted but I felt that that aspect has already been well covered.
+
+It has been an extremely interesting subject to dive into and one that would probably be large and complex enough for a lifetime of study. With a few diagrams it is able to follow the effects of politics and new variants of the virus, as well as development of vaccines and treatments. In particular I found it heartening to see what appears the first signs of the virus becoming less lethal; a promise of better times to come.
